@@ -1,4 +1,5 @@
 package uniandes.edu.co.proyecto.controller;
+
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -19,8 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 import uniandes.edu.co.proyecto.interfaz.DisponibilidadServicioProjection;
 import uniandes.edu.co.proyecto.interfaz.IndiceUsoServicioProjection;
 import uniandes.edu.co.proyecto.modelo.AgendaServicio;
+import uniandes.edu.co.proyecto.modelo.OrdenServicio;
 import uniandes.edu.co.proyecto.repository.AgendaServicioRepository;
-
+import uniandes.edu.co.proyecto.repository.AgendaServicioService;
 
 @RestController
 public class AgendaServicioController {
@@ -28,18 +30,21 @@ public class AgendaServicioController {
     @Autowired
     private AgendaServicioRepository agendaServicioRepository;
 
-    //obtener los agenda servicio
+    @Autowired
+    private AgendaServicioService agendaServicioService; // <- IMPORTANTE: Agregado para RF9 y RFC5
+
+    // obtener los agenda servicio
     @GetMapping("/agenda-servicio")
-    public ResponseEntity<Collection<AgendaServicio>> agendas(){
+    public ResponseEntity<Collection<AgendaServicio>> agendas() {
         try {
             Collection<AgendaServicio> agendaservicios = agendaServicioRepository.darAgendaServicios();
             return ResponseEntity.ok(agendaservicios);
-        } catch(Exception e){
+        } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
-    //insertar agenda servicio (sin afiliado sin orden)
+    // insertar agenda servicio (sin afiliado sin orden)
     @PostMapping("/agenda-servicio/new/save")
     public ResponseEntity<?> crearAgendaServicio(@RequestBody AgendaServicio agenda) {
         try {
@@ -109,72 +114,88 @@ public class AgendaServicioController {
         }
     }
 
+    // RFC1 - Consultar disponibilidad de un servicio
+    @GetMapping("/agenda-servicio/disponibilidad/{idServicio}")
+    public ResponseEntity<?> consultarDisponibilidadServicio(
+        @PathVariable Integer idServicio) {
+        try {
+            LocalDateTime fechaActual = LocalDateTime.now();
+            LocalDateTime fechaFin = fechaActual.plusWeeks(4);
 
-//rfc1
-@GetMapping("/agenda-servicio/disponibilidad/{idServicio}")
-public ResponseEntity<?> consultarDisponibilidadServicio(
-    @PathVariable Integer idServicio) {
-    
-    try {
-        LocalDateTime fechaActual = LocalDateTime.now();
-        LocalDateTime fechaFin = fechaActual.plusWeeks(4);
-        
-        List<DisponibilidadServicioProjection> disponibilidad = 
-            agendaServicioRepository.findDisponibilidadByServicio(
-                idServicio, 
-                fechaActual, 
-                fechaFin);
-        
-        if (disponibilidad.isEmpty()) {
-            return ResponseEntity.ok("No hay disponibilidad para este servicio en las próximas 4 semanas");
+            List<DisponibilidadServicioProjection> disponibilidad =
+                agendaServicioRepository.findDisponibilidadByServicio(
+                    idServicio,
+                    fechaActual,
+                    fechaFin
+                );
+
+            if (disponibilidad.isEmpty()) {
+                return ResponseEntity.ok("No hay disponibilidad para este servicio en las próximas 4 semanas");
+            }
+            return ResponseEntity.ok(disponibilidad);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                   .body("Error al consultar disponibilidad: " + e.getMessage());
         }
-        
-        return ResponseEntity.ok(disponibilidad);
-        
-    } catch (Exception e) {
-        return ResponseEntity.internalServerError()
-               .body("Error al consultar disponibilidad: " + e.getMessage());
     }
-}
 
-//rfc3
-@GetMapping("/agenda-servicio/indice-uso")
-public ResponseEntity<?> getIndiceUsoServicios(
-    @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaInicio,
-    @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaFin) {
-    
-    try {
-        if (fechaFin.isBefore(fechaInicio)) {
-            return ResponseEntity.badRequest().body("La fecha final debe ser posterior a la fecha inicial");
-        }
+    // RFC3 - Índice de uso de servicios
+    @GetMapping("/agenda-servicio/indice-uso")
+    public ResponseEntity<?> getIndiceUsoServicios(
+        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaInicio,
+        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaFin) {
+        try {
+            if (fechaFin.isBefore(fechaInicio)) {
+                return ResponseEntity.badRequest().body("La fecha final debe ser posterior a la fecha inicial");
+            }
+            List<IndiceUsoServicioProjection> indices =
+                agendaServicioRepository.calcularIndiceUsoServicios(fechaInicio, fechaFin);
 
-        List<IndiceUsoServicioProjection> indices = 
-            agendaServicioRepository.calcularIndiceUsoServicios(fechaInicio, fechaFin);
-        
-        if (indices.isEmpty()) {
-            return ResponseEntity.ok("No hay datos disponibles para el período especificado");
+            if (indices.isEmpty()) {
+                return ResponseEntity.ok("No hay datos disponibles para el período especificado");
+            }
+            return ResponseEntity.ok(indices);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                   .body("Error al calcular índices de uso: " + e.getMessage());
         }
-        
-        return ResponseEntity.ok(indices);
-        
-    } catch (Exception e) {
-        return ResponseEntity.internalServerError()
-               .body("Error al calcular índices de uso: " + e.getMessage());
     }
+
+    // RF9 - Agendar servicio de salud (TRANSACCIONAL)
+    @PostMapping("/agenda-servicio/agendar-transaccional/{idAgendaServicio}")
+    public ResponseEntity<String> agendarServicioTransaccional(
+            @PathVariable("idAgendaServicio") Long idAgendaServicio,
+            @RequestBody OrdenServicio nuevaOrden) {
+        try {
+            boolean resultado = agendaServicioService.agendarServicio(idAgendaServicio, nuevaOrden);
+            if (resultado) {
+                return ResponseEntity.ok("Agendamiento exitoso.");
+            } else {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                       .body("No se pudo agendar el servicio (posiblemente ya no hay disponibilidad).");
+            }
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                   .body("Error al agendar servicio: " + e.getMessage());
+        }
+    }
+
+    // RFC5 - Consultar disponibilidad de agenda (SERIALIZABLE + 30s espera)
+    @GetMapping("/agenda-servicio/disponibilidad-transaccional")
+    public ResponseEntity<?> consultarDisponibilidadTransaccional(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaInicio,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fechaFin,
+            @RequestParam(required = false) Long idMedico,
+            @RequestParam(required = false) Long idServicio) {
+        try {
+            List<AgendaServicio> resultados = agendaServicioService.consultarDisponibilidadConFiltros(
+                fechaInicio, fechaFin, idMedico, idServicio
+            );
+            return ResponseEntity.ok(resultados);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                   .body("Error al consultar disponibilidad: " + e.getMessage());
+        }
+    }
+
 }
-
-
-
-
-
-
-
-
-
-
-}
-
-
-
-
-

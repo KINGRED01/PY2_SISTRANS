@@ -1,4 +1,5 @@
 package uniandes.edu.co.proyecto.repository;
+
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -15,39 +16,39 @@ import uniandes.edu.co.proyecto.modelo.AgendaServicio;
 
 public interface AgendaServicioRepository extends JpaRepository<AgendaServicio, Integer> {
 
-    //obtener todos los agenda servicio
+    // obtener todos los agenda servicio
     @Query(value="SELECT * FROM agendaservicio", nativeQuery=true)
     Collection<AgendaServicio> darAgendaServicios();
 
-    //obtener agenda servicio por id
+    // obtener agenda servicio por id
     @Query(value = "SELECT * FROM agendaservicio WHERE id = :id", nativeQuery = true)
     AgendaServicio darAgendaServicio(@Param("id") Integer id);
 
-    //insertar agenda servicio RF7.1 vacía
+    // insertar agenda servicio RF7.1 vacía
     @Modifying
     @Transactional
-    @Query(value="INSERT INTO agendaservicio ( id_medico, id_serviciosalud, id_ips, fecha_Hora, id_afiliado, id_ordenservicio) VALUES ( :id_medico, :id_serviciosalud, :id_ips, :fecha_Hora, NULL, NULL)", nativeQuery=true)
+    @Query(value="INSERT INTO agendaservicio (id_medico, id_serviciosalud, id_ips, fecha_Hora, id_afiliado, id_ordenservicio) VALUES (:id_medico, :id_serviciosalud, :id_ips, :fecha_Hora, NULL, NULL)", nativeQuery=true)
     void insertarAgendaServicio(@Param("id_medico") Integer id_medico, @Param("id_serviciosalud") Integer id_serviciosalud, @Param("id_ips") Integer id_ips, @Param("fecha_Hora") LocalDateTime fecha_Hora);
 
-    //insertar agenda servicio RF7.2 agendamiento
+    // insertar agenda servicio RF7.2 agendamiento
     @Modifying
     @Transactional
     @Query(value="UPDATE agendaservicio SET id_afiliado = :id_afiliado, id_ordenservicio = :id_ordenservicio WHERE id = :id AND id_afiliado IS NULL", nativeQuery=true)
     int AgendarServicio(@Param("id") Integer id, @Param("id_afiliado") Integer id_afiliado, @Param("id_ordenservicio") Integer id_ordenservicio);
 
-    //actualizar una agenda servicio
+    // actualizar una agenda servicio
     @Modifying
     @Transactional
-    @Query(value="UPDATE agendaservicio SET id_medico = :id_medico, id_serviciosalud = :id_serviciosalud, id_ips = :id_ips, fecha_Hora = :fecha_Hora, id_afiliado = :id_afiliado, id_ordenservicio = :id_ordenservicio  WHERE id = :id", nativeQuery=true)
+    @Query(value="UPDATE agendaservicio SET id_medico = :id_medico, id_serviciosalud = :id_serviciosalud, id_ips = :id_ips, fecha_Hora = :fecha_Hora, id_afiliado = :id_afiliado, id_ordenservicio = :id_ordenservicio WHERE id = :id", nativeQuery=true)
     void actualizarAgendaServicio(@Param("id") Integer id, @Param("id_medico") Integer id_medico, @Param("id_serviciosalud") Integer id_serviciosalud, @Param("id_ips") Integer id_ips, @Param("fecha_Hora") LocalDateTime fechaHora, @Param("id_afiliado") Integer id_afiliado, @Param("id_ordenservicio") Integer id_ordenservicio);
 
-    //eliminar agenda servicio
+    // eliminar agenda servicio
     @Modifying
     @Transactional
-    @Query(value="DELETE FROM agendaservicio WHERE id =:id", nativeQuery=true)
+    @Query(value="DELETE FROM agendaservicio WHERE id = :id", nativeQuery=true)
     void eliminarAgendaServicio(@Param("id") Integer id);
 
-//RFC1 
+    // RFC1 - Consultar disponibilidad de un servicio de salud
     @Query(value = """
     SELECT 
         s.nombre as nombreServicio,
@@ -70,14 +71,12 @@ public interface AgendaServicioRepository extends JpaRepository<AgendaServicio, 
     ORDER BY 
         a.fecha_Hora ASC
     """, nativeQuery = true)
-List<DisponibilidadServicioProjection> findDisponibilidadByServicio(
-    @Param("idServicio") Integer idServicio,
-    @Param("fechaInicio") LocalDateTime fechaInicio,
-    @Param("fechaFin") LocalDateTime fechaFin);
+    List<DisponibilidadServicioProjection> findDisponibilidadByServicio(
+        @Param("idServicio") Integer idServicio,
+        @Param("fechaInicio") LocalDateTime fechaInicio,
+        @Param("fechaFin") LocalDateTime fechaFin);
 
-
-
-
+    // RFC3 - Índice de uso de servicios
     @Query(value = """
     SELECT 
         ss.id as idServicio,
@@ -86,8 +85,7 @@ List<DisponibilidadServicioProjection> findDisponibilidadByServicio(
         COUNT(DISTINCT p.id) as totalUsados,
         CASE 
             WHEN COUNT(DISTINCT p.id) = 0 THEN 0
-            ELSE ROUND(COUNT(DISTINCT p.id) / 
-                  (COUNT(DISTINCT CASE WHEN a.id_afiliado IS NULL THEN a.id END) + COUNT(DISTINCT p.id)), 2)
+            ELSE ROUND(COUNT(DISTINCT p.id) / (COUNT(DISTINCT CASE WHEN a.id_afiliado IS NULL THEN a.id END) + COUNT(DISTINCT p.id)), 2)
         END as indiceUso
     FROM 
         serviciosalud ss
@@ -102,11 +100,26 @@ List<DisponibilidadServicioProjection> findDisponibilidadByServicio(
     ORDER BY 
         indiceUso DESC
     """, nativeQuery = true)
-List<IndiceUsoServicioProjection> calcularIndiceUsoServicios(
-    @Param("fechaInicio") LocalDateTime fechaInicio,
-    @Param("fechaFin") LocalDateTime fechaFin);
+    List<IndiceUsoServicioProjection> calcularIndiceUsoServicios(
+        @Param("fechaInicio") LocalDateTime fechaInicio,
+        @Param("fechaFin") LocalDateTime fechaFin);
 
+    // RFC5 - NUEVO método para consultar disponibilidad filtrada (SERIALIZABLE)
+    @Query("""
+        SELECT a FROM AgendaServicio a
+        WHERE (:fechaInicio IS NULL OR a.fechaHora >= :fechaInicio)
+        AND (:fechaFin IS NULL OR a.fechaHora <= :fechaFin)
+        AND (:idMedico IS NULL OR a.id_medico.id = :idMedico)
+        AND (:idServicio IS NULL OR a.id_serviciosalud.id = :idServicio)
+    """)
+    List<AgendaServicio> findDisponibilidadPorFiltros(
+        @Param("fechaInicio") LocalDateTime fechaInicio,
+        @Param("fechaFin") LocalDateTime fechaFin,
+        @Param("idMedico") Long idMedico,
+        @Param("idServicio") Long idServicio
+    );
 
 }
+
 
 
